@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <string name="app_name">Vosk Demo</string>
-    <string name="recognize_file">Recognize File</string>
-    <string name="recognize_microphone">Recognize Microphone</string>
-    <string name="stop_microphone">Stop Microphone</string>
-    <string name="preparing">Preparing the recognizer\n</string>
-    <string name="ready">Ready\n</string>
-    <string name="failed">Failed to init recognizer %s\n</string>
-    <string name="starting">Starting\n</string>
-    <string name="say_something">Say something\n</string>
-    <string name="stop_file">Stop File</string>
-    <string name="pause">Pause</string>
-    <string name="continueRecognition">Continue</string>
+    <string name="app_name">星辉语音助手</string>
+    <string name="recognize_file">识别文件</string>
+    <string name="recognize_microphone">识别麦克风</string>
+    <string name="stop_microphone">停止麦克风</string>
+    <string name="preparing">正在准备识别引擎...\n</string>
+    <string name="ready">就绪\n</string>
+    <string name="failed">初始化失败 %s\n</string>
+    <string name="starting">正在启动...\n</string>
+    <string name="say_something">请说话...\n</string>
+    <string name="stop_file">停止文件</string>
+    <string name="pause">暂停</string>
+    <string name="continueRecognition">继续</string>
 
 </resources>
