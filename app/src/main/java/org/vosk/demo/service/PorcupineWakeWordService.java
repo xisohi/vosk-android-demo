@@ -9,17 +9,10 @@ import ai.picovoice.porcupine.PorcupineManager;
 import ai.picovoice.porcupine.PorcupineException;
 
 public class PorcupineWakeWordService {
+
     private static final String TAG = "PorcupineWakeWord";
 
-    private static final String ACCESS_KEY = "CxU8mHfeTo9E8qG85VUCdiftW1+l0CP9xJ3PCXqIMIecmrSSMNt1rQ==";
-
-    // 检查这些路径是否正确
-    private static final String MODEL_PATH = "models/porcupine_params_zh.pv";
-    private static final String[] KEYWORD_PATHS = {
-            "models/xiaogangpao.ppn",
-            "models/xiaofei.ppn"
-    };
-    private static final float[] SENSITIVITIES = {0.7f, 0.75f};
+    private static final String ACCESS_KEY = "LmayZpsbgbISnP7nXP9CWXm3kzpDfItMkaQfblUOGWcBnMsG7kK1nw=="; // ⚠️ 建议换新key
 
     private PorcupineManager porcupineManager;
     private WakeWordListener listener;
@@ -32,20 +25,31 @@ public class PorcupineWakeWordService {
     public PorcupineWakeWordService(Context context, WakeWordListener listener) {
         this.listener = listener;
 
-        // 添加详细日志：检查文件是否存在
-        logFileStatus(context);
+        // ✅ 获取内部存储路径
+        File baseDir = context.getFilesDir();
+
+        String modelPath = new File(baseDir, "porcupine_params_zh.pv").getAbsolutePath();
+
+        String[] keywordPaths = {
+                new File(baseDir, "xiaogangpao.ppn").getAbsolutePath(),
+                new File(baseDir, "xiaofei.ppn").getAbsolutePath()
+        };
+
+        float[] sensitivities = {0.7f, 0.75f};
+
+        // ✅ 打印路径检查（非常重要）
+        logFileStatus(baseDir, modelPath, keywordPaths);
 
         try {
             Log.i(TAG, "开始初始化 Porcupine 4.0...");
             Log.i(TAG, "AccessKey: " + ACCESS_KEY.substring(0, 10) + "...");
-            Log.i(TAG, "模型路径: " + MODEL_PATH);
-            Log.i(TAG, "唤醒词路径: " + KEYWORD_PATHS[0] + ", " + KEYWORD_PATHS[1]);
+            Log.i(TAG, "modelPath: " + modelPath);
 
             porcupineManager = new PorcupineManager.Builder()
                     .setAccessKey(ACCESS_KEY)
-                    .setModelPath(MODEL_PATH)
-                    .setKeywordPaths(KEYWORD_PATHS)
-                    .setSensitivities(SENSITIVITIES)
+                    .setModelPath(modelPath)          // ✅ 绝对路径
+                    .setKeywordPaths(keywordPaths)    // ✅ 绝对路径
+                    .setSensitivities(sensitivities)
                     .build(context, keywordIndex -> {
                         Log.i(TAG, "检测到唤醒词索引: " + keywordIndex);
                         if (this.listener != null) {
@@ -54,44 +58,32 @@ public class PorcupineWakeWordService {
                     });
 
             isInitialized = true;
-            Log.i(TAG, "Porcupine 4.0 初始化成功！");
+            Log.i(TAG, "✅ Porcupine 初始化成功！");
 
         } catch (PorcupineException e) {
-            Log.e(TAG, "初始化失败: " + e.getMessage());
+            Log.e(TAG, "❌ 初始化失败: " + e.getMessage());
             Log.e(TAG, "详细错误: ", e);
             isInitialized = false;
         }
     }
 
     /**
-     * 检查模型文件状态
+     * 文件检查（增强版）
      */
-    private void logFileStatus(Context context) {
+    private void logFileStatus(File baseDir, String modelPath, String[] keywordPaths) {
         Log.i(TAG, "========== 文件检查 ==========");
+        Log.i(TAG, "baseDir: " + baseDir.getAbsolutePath());
 
-        // 检查 assets 中的文件
-        try {
-            String[] assets = context.getAssets().list("models");
-            if (assets != null) {
-                Log.i(TAG, "assets/models 目录内容:");
-                for (String f : assets) {
-                    Log.i(TAG, "  - " + f);
-                }
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "无法读取 assets/models: " + e.getMessage());
-        }
+        File modelFile = new File(modelPath);
+        Log.i(TAG, "模型文件: " + modelFile.getAbsolutePath() +
+                " | 存在=" + modelFile.exists() +
+                " | 大小=" + modelFile.length());
 
-        // 检查内部存储中的文件
-        File[] files = {
-                new File(context.getFilesDir(), "porcupine_params_zh.pv"),
-                new File(context.getFilesDir(), "xiaogangpao.ppn"),
-                new File(context.getFilesDir(), "xiaofei.ppn")
-        };
-
-        Log.i(TAG, "内部存储文件检查:");
-        for (File f : files) {
-            Log.i(TAG, "  " + f.getName() + ": " + (f.exists() ? "存在 (" + f.length() + "字节)" : "不存在"));
+        for (String path : keywordPaths) {
+            File f = new File(path);
+            Log.i(TAG, "唤醒词文件: " + f.getAbsolutePath() +
+                    " | 存在=" + f.exists() +
+                    " | 大小=" + f.length());
         }
 
         Log.i(TAG, "==============================");
@@ -104,9 +96,9 @@ public class PorcupineWakeWordService {
         }
         try {
             porcupineManager.start();
-            Log.i(TAG, "开始监听唤醒词");
+            Log.i(TAG, "🎤 开始监听唤醒词");
         } catch (PorcupineException e) {
-            Log.e(TAG, "启动失败: " + e.getMessage() + ", 码: ");
+            Log.e(TAG, "启动失败: " + e.getMessage(), e);
         }
     }
 
@@ -114,9 +106,9 @@ public class PorcupineWakeWordService {
         if (!isInitialized || porcupineManager == null) return;
         try {
             porcupineManager.stop();
-            Log.i(TAG, "停止监听唤醒词");
+            Log.i(TAG, "⏹ 停止监听唤醒词");
         } catch (PorcupineException e) {
-            Log.e(TAG, "停止失败: " + e.getMessage());
+            Log.e(TAG, "停止失败: " + e.getMessage(), e);
         }
     }
 
@@ -132,7 +124,7 @@ public class PorcupineWakeWordService {
         if (porcupineManager != null) {
             porcupineManager.delete();
             porcupineManager = null;
-            Log.i(TAG, "资源已释放");
+            Log.i(TAG, "🧹 资源已释放");
         }
     }
 }
