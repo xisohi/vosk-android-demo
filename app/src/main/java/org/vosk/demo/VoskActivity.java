@@ -17,12 +17,26 @@ package org.vosk.demo;
 import android.Manifest;
 import android.app.Activity;
 import android.content.pm.PackageManager;
+import android.media.AudioFormat;
+import android.media.AudioManager;
+import android.media.AudioRecord;
+import android.media.MediaRecorder;
+import android.media.ToneGenerator;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.method.ScrollingMovementMethod;
+import android.view.KeyEvent;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.ToggleButton;
 
+import androidx.annotation.NonNull;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+
+import org.json.JSONException;
+import org.json.JSONObject;
 import org.vosk.LibVosk;
 import org.vosk.LogLevel;
 import org.vosk.Model;
@@ -35,26 +49,10 @@ import org.vosk.android.StorageService;
 import java.io.IOException;
 import java.io.InputStream;
 
-import androidx.annotation.NonNull;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
-
 import ai.picovoice.porcupine.Porcupine;
-import org.json.JSONObject;
-import org.json.JSONException;
-import android.media.AudioManager;
-import android.view.KeyEvent;
-import android.content.Intent;
-import android.net.Uri;
-import android.os.Handler;
-import android.os.Looper;
-import android.media.ToneGenerator;
-import android.media.AudioRecord;
-import android.media.MediaRecorder;
-import android.media.AudioFormat;
+import ai.picovoice.porcupine.PorcupineException;   // 添加异常导入
 
-public class VoskActivity extends Activity implements
-        RecognitionListener {
+public class VoskActivity extends Activity implements RecognitionListener {
 
     static private final int STATE_START = 0;
     static private final int STATE_READY = 1;
@@ -70,8 +68,8 @@ public class VoskActivity extends Activity implements
     private SpeechStreamService speechStreamService;
     private TextView resultView;
 
-    // Porcupine 唤醒词
-    private static final String ACCESS_KEY = "CxU8mHfeTo9E8qG85VUCdiftW1+l0CP9xJ3PCXqIMIecmrSSMNt1rQ==";  // ← 替换为您的Key
+    // Porcupine 唤醒词配置
+    private static final String ACCESS_KEY = "CxU8mHfeTo9E8qG85VUCdiftW1+l0CP9xJ3PCXqIMIecmrSSMNt1rQ==";  // 替换为你的有效 AccessKey
     private static final String MODEL_PATH = "models/porcupine_params_zh.pv";
     private static final String[] KEYWORD_PATHS = {
             "models/xiaogangpao.ppn",
@@ -101,7 +99,7 @@ public class VoskActivity extends Activity implements
 
         LibVosk.setLogLevel(LogLevel.INFO);
 
-        // Check if user has given permission to record audio, init the model after permission is granted
+        // Check if user has given permission to record audio
         int permissionCheck = ContextCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.RECORD_AUDIO);
         if (permissionCheck != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.RECORD_AUDIO}, PERMISSIONS_REQUEST_RECORD_AUDIO);
@@ -118,20 +116,21 @@ public class VoskActivity extends Activity implements
                     initPorcupine();  // 初始化唤醒词
                     startWakeWordDetection();  // 启动唤醒词监听
                 },
-                (exception) -> setErrorState("Failed to unpack the model" + exception.getMessage()));
+                (exception) -> setErrorState("Failed to unpack the model: " + exception.getMessage()));
     }
 
     // 初始化 Porcupine 唤醒词引擎
     private void initPorcupine() {
         try {
+            // 注意：必须传入 Context (this)
             porcupine = new Porcupine.Builder()
                     .setAccessKey(ACCESS_KEY)
                     .setModelPath(MODEL_PATH)
                     .setKeywordPaths(KEYWORD_PATHS)
                     .setSensitivities(SENSITIVITIES)
-                    .build(this);
+                    .build(this);   // 关键修改：添加 this
             showResult("唤醒词初始化完成: 小钢炮, 小飞");
-        } catch (Exception e) {
+        } catch (PorcupineException e) {
             setErrorState("唤醒词初始化失败: " + e.getMessage());
         }
     }
@@ -158,9 +157,16 @@ public class VoskActivity extends Activity implements
             while (isRunning) {
                 int read = audioRecord.read(buffer, 0, buffer.length);
                 if (read > 0 && isWakeWordMode) {
-                    int keywordIndex = porcupine.process(buffer);
-                    if (keywordIndex >= 0) {
-                        onWakeWordDetected(keywordIndex);
+                    try {
+                        // 处理异常：Porcupine.process() 可能抛出 PorcupineException
+                        int keywordIndex = porcupine.process(buffer);
+                        if (keywordIndex >= 0) {
+                            onWakeWordDetected(keywordIndex);
+                        }
+                    } catch (PorcupineException e) {
+                        // 记录异常，继续运行
+                        e.printStackTrace();
+                        // 可以选择显示错误，但这里只打印堆栈
                     }
                 }
             }
@@ -172,9 +178,10 @@ public class VoskActivity extends Activity implements
         String wakeWord = WAKE_WORD_NAMES[index];
         showResult("唤醒: " + wakeWord);
 
-        // 播放提示音
+        // 播放提示音并释放资源
         ToneGenerator toneGen = new ToneGenerator(AudioManager.STREAM_MUSIC, 100);
         toneGen.startTone(ToneGenerator.TONE_PROP_BEEP, 200);
+        toneGen.release();  // 释放资源
 
         // 切换到指令识别模式
         isWakeWordMode = false;
@@ -239,7 +246,6 @@ public class VoskActivity extends Activity implements
 
     @Override
     public void onResult(String hypothesis) {
-        // 解析指令并执行
         processCommand(hypothesis);
         resultView.append(hypothesis + "\n");
     }
@@ -394,8 +400,7 @@ public class VoskActivity extends Activity implements
                 Recognizer rec = new Recognizer(model, 16000.f, "[\"one zero zero zero one\", " +
                         "\"oh zero one two three four five six seven eight nine\", \"[unk]\"]");
 
-                InputStream ais = getAssets().open(
-                        "10001-90210-01803.wav");
+                InputStream ais = getAssets().open("10001-90210-01803.wav");
                 if (ais.skip(44) != 44) throw new IOException("File too short");
 
                 speechStreamService = new SpeechStreamService(rec, ais, 16000);
