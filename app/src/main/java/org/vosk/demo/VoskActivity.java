@@ -129,7 +129,7 @@ public class VoskActivity extends Activity implements
                     .setModelPath(MODEL_PATH)
                     .setKeywordPaths(KEYWORD_PATHS)
                     .setSensitivities(SENSITIVITIES)
-                    .build();
+                    .build(this);
             showResult("唤醒词初始化完成: 小钢炮, 小飞");
         } catch (Exception e) {
             setErrorState("唤醒词初始化失败: " + e.getMessage());
