@@ -30,7 +30,9 @@ import android.view.KeyEvent;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.ToggleButton;
-
+import android.content.Intent;
+import android.net.Uri;
+import android.view.KeyEvent;
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
