@@ -57,12 +57,6 @@
             android:exported="false"
             android:foregroundServiceType="microphone" />
         
-        <!-- 新增：唤醒词检测服务 -->
-        <service
-            android:name=".service.WakeWordService"
-            android:enabled="true"
-            android:exported="false" />
-        
         <!-- 新增：开机启动接收器 -->
         <receiver
             android:name=".receiver.BootReceiver"
