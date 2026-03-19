@@ -14,6 +14,13 @@ import java.io.OutputStream;
 public class AssetCopyUtil {
     private static final String TAG = "AssetCopyUtil";
 
+    public interface CopyListener {
+        void onStart();
+        void onProgress(int percent);
+        void onSuccess(File destDir);
+        void onError();
+    }
+
     public static void copyAssetFolderToInternalStorage(Context context, String assetPath, File destDir, CopyListener listener) {
         new CopyTask(context, assetPath, destDir, listener).execute();
     }
@@ -43,25 +50,31 @@ public class AssetCopyUtil {
             AssetManager assetManager = context.getAssets();
             try {
                 totalSize = getFolderSize(assetManager, assetPath);
-                return copyFolder(assetManager, assetPath, destDir);
+                // 创建目标子目录：destDir/assetPath
+                File targetDir = new File(destDir, assetPath);
+                if (!targetDir.exists() && !targetDir.mkdirs()) {
+                    Log.e(TAG, "无法创建目标目录: " + targetDir);
+                    return false;
+                }
+                return copyFolder(assetManager, assetPath, targetDir);
             } catch (IOException e) {
                 Log.e(TAG, "复制失败", e);
                 return false;
             }
         }
 
-        private boolean copyFolder(AssetManager assetManager, String assetPath, File destDir) throws IOException {
-            String[] files = assetManager.list(assetPath);
+        private boolean copyFolder(AssetManager assetManager, String currentAssetPath, File currentDestDir) throws IOException {
+            String[] files = assetManager.list(currentAssetPath);
             if (files == null) return false;
 
-            if (!destDir.exists() && !destDir.mkdirs()) {
-                Log.e(TAG, "无法创建目录: " + destDir);
+            if (!currentDestDir.exists() && !currentDestDir.mkdirs()) {
+                Log.e(TAG, "无法创建目录: " + currentDestDir);
                 return false;
             }
 
             for (String filename : files) {
-                String childAssetPath = assetPath.isEmpty() ? filename : assetPath + "/" + filename;
-                File childDest = new File(destDir, filename);
+                String childAssetPath = currentAssetPath.isEmpty() ? filename : currentAssetPath + "/" + filename;
+                File childDest = new File(currentDestDir, filename);
 
                 if (isDirectory(assetManager, childAssetPath)) {
                     if (!copyFolder(assetManager, childAssetPath, childDest)) {
@@ -89,16 +102,16 @@ public class AssetCopyUtil {
             return true;
         }
 
-        private long getFolderSize(AssetManager assetManager, String assetPath) throws IOException {
+        private long getFolderSize(AssetManager assetManager, String path) throws IOException {
             long size = 0;
-            String[] files = assetManager.list(assetPath);
+            String[] files = assetManager.list(path);
             if (files == null) return 0;
             for (String file : files) {
-                String childPath = assetPath + "/" + file;
+                String childPath = path + "/" + file;
                 if (isDirectory(assetManager, childPath)) {
                     size += getFolderSize(assetManager, childPath);
                 } else {
-                    // 无法直接获取 assets 文件大小，这里简单返回0，不影响进度
+                    // 无法获取 assets 文件大小，返回0不影响进度
                 }
             }
             return size;
@@ -122,18 +135,26 @@ public class AssetCopyUtil {
         protected void onPostExecute(Boolean success) {
             if (listener != null) {
                 if (success) {
+                    // 列出解压后的文件（用于调试）
+                    File modelDir = new File(destDir, assetPath);
+                    if (modelDir.exists()) {
+                        String[] files = modelDir.list();
+                        Log.d(TAG, "解压完成，目标目录: " + modelDir.getAbsolutePath());
+                        if (files != null) {
+                            for (String f : files) {
+                                Log.d(TAG, "  - " + f);
+                            }
+                        } else {
+                            Log.w(TAG, "目标目录为空或无法列出");
+                        }
+                    } else {
+                        Log.e(TAG, "模型子目录不存在: " + modelDir.getAbsolutePath());
+                    }
                     listener.onSuccess(destDir);
                 } else {
                     listener.onError();
                 }
             }
         }
-    }
-
-    public interface CopyListener {
-        void onStart();
-        void onProgress(int percent);
-        void onSuccess(File destDir);
-        void onError();
     }
 }
