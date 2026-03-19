@@ -26,7 +26,7 @@ import org.vosk.android.SpeechService;
 import org.vosk.demo.R;
 import org.vosk.demo.VoskActivity;
 import org.vosk.demo.ui.FloatWindowManager;
-import org.vosk.demo.utils.AssetCopyUtil;  // 新增导入
+import org.vosk.demo.utils.AssetCopyUtil;
 
 import java.io.File;
 import java.io.IOException;
@@ -37,24 +37,19 @@ public class VoiceAssistantService extends Service {
     private static final String CHANNEL_ID = "voice_assistant_channel";
     private static final int NOTIFICATION_ID = 1001;
 
-    // 模型相关常量
     private static final String MODEL_ASSET_PATH = "vosk-model-small-cn-0.22";
     private static final String MODEL_INTERNAL_DIR = "models";
 
-    // 组件
     private FloatWindowManager floatWindowManager;
     private WakeWordService wakeWordService;
 
-    // Vosk 相关
     private Model model;
     private SpeechService speechService;
     private Recognizer recognizer;
 
-    // 状态
     private boolean isListening = false;
     private boolean isWakeWordEnabled = true;
 
-    // 广播接收器
     private BroadcastReceiver commandReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -72,42 +67,45 @@ public class VoiceAssistantService extends Service {
         super.onCreate();
         Log.d(TAG, "服务创建");
 
-        // 创建通知渠道（Android 8.0+）
         createNotificationChannel();
-
-        // 启动前台服务
         startForeground(NOTIFICATION_ID, createNotification());
 
-        // 初始化悬浮窗管理器
         floatWindowManager = new FloatWindowManager(this);
-
-        // 初始化Vosk（现在包含模型解压逻辑）
         initVosk();
-
-        // 初始化唤醒词检测
         initWakeWordDetection();
 
-        // 注册广播接收器（适配 Android 12+）
         IntentFilter filter = new IntentFilter();
         filter.addAction("org.vosk.demo.START_LISTENING");
         filter.addAction("org.vosk.demo.STOP_LISTENING");
         ContextCompat.registerReceiver(this, commandReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
 
-        // 显示悬浮球
+        // 显示悬浮球（内部已处理权限）
         floatWindowManager.showFloatBall();
 
-        // 如果唤醒词功能开启并且有录音权限，开始监听
+        // 启动唤醒词监听（如果权限允许）
         if (isWakeWordEnabled && wakeWordService != null) {
             if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
                     == PackageManager.PERMISSION_GRANTED) {
                 wakeWordService.startListening();
             } else {
                 Log.w(TAG, "没有录音权限，唤醒词监听未启动");
-                floatWindowManager.showTip("需要录音权限才能使用唤醒词");
+                // 使用安全提示（内部会判断权限）
+                showSafeTip("需要录音权限才能使用唤醒词");
             }
         }
 
         Toast.makeText(this, "语音助手已启动", Toast.LENGTH_SHORT).show();
+    }
+
+    /**
+     * 安全提示：若悬浮窗权限未授予则用 Toast，否则用悬浮窗
+     */
+    private void showSafeTip(String message) {
+        if (floatWindowManager != null) {
+            floatWindowManager.showTip(message);
+        } else {
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void createNotificationChannel() {
@@ -149,14 +147,12 @@ public class VoiceAssistantService extends Service {
         Log.d(TAG, "初始化Vosk");
         LibVosk.setLogLevel(LogLevel.INFO);
 
-        // 模型目标路径：/data/data/org.vosk.demo/files/models/vosk-model-small-cn-0.22/
         File modelDir = new File(getFilesDir(), MODEL_INTERNAL_DIR + "/" + MODEL_ASSET_PATH);
 
         if (modelDir.exists()) {
-            // 模型已存在，直接加载
+            Log.d(TAG, "模型目录已存在，尝试加载");
             loadModel(modelDir.getAbsolutePath());
         } else {
-            // 模型不存在，需要从 assets 解压
             Toast.makeText(this, "首次使用，正在解压语音模型（约40MB），请稍候...", Toast.LENGTH_LONG).show();
 
             File destDir = new File(getFilesDir(), MODEL_INTERNAL_DIR);
@@ -174,11 +170,26 @@ public class VoiceAssistantService extends Service {
 
                         @Override
                         public void onSuccess(File dir) {
-                            Log.d(TAG, "模型解压成功，路径: " + dir.getAbsolutePath());
+                            Log.d(TAG, "模型解压成功，目标目录: " + dir.getAbsolutePath());
+                            // 输出解压后的文件列表，便于调试
+                            File modelSubDir = new File(dir, MODEL_ASSET_PATH);
+                            if (modelSubDir.exists()) {
+                                String[] children = modelSubDir.list();
+                                Log.d(TAG, "模型文件夹内容 (" + modelSubDir.getAbsolutePath() + "):");
+                                if (children != null) {
+                                    for (String child : children) {
+                                        Log.d(TAG, "  - " + child);
+                                    }
+                                } else {
+                                    Log.e(TAG, "模型文件夹为空或无法列出");
+                                }
+                            } else {
+                                Log.e(TAG, "模型子目录不存在: " + modelSubDir.getAbsolutePath());
+                            }
+
                             runOnUiThread(() -> {
                                 Toast.makeText(VoiceAssistantService.this, "模型解压完成", Toast.LENGTH_SHORT).show();
                             });
-                            // 解压完成后加载模型
                             loadModel(new File(dir, MODEL_ASSET_PATH).getAbsolutePath());
                         }
 
@@ -197,8 +208,10 @@ public class VoiceAssistantService extends Service {
         try {
             model = new Model(path);
             Log.d(TAG, "模型加载成功: " + path);
+            runOnUiThread(() -> Toast.makeText(this, "模型加载成功", Toast.LENGTH_SHORT).show());
         } catch (Exception e) {
             Log.e(TAG, "模型加载失败: " + e.getMessage());
+            runOnUiThread(() -> Toast.makeText(this, "模型加载失败: " + e.getMessage(), Toast.LENGTH_LONG).show());
         }
     }
     // ========================================================
@@ -208,35 +221,32 @@ public class VoiceAssistantService extends Service {
         wakeWordService.setWakeWordListener(new WakeWordService.WakeWordListener() {
             @Override
             public void onWakeWordDetected() {
-                Log.d(TAG, "唤醒词检测到");
-
-                // 在主线程中处理
-                VoiceAssistantService.this.runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (floatWindowManager != null) {
-                            floatWindowManager.showTip("我在");
-                        }
+                Log.d(TAG, "唤醒词检测到，停止唤醒词监听...");
+                if (wakeWordService != null && wakeWordService.isListening()) {
+                    wakeWordService.stopListening();
+                    Log.d(TAG, "唤醒词监听已停止");
+                }
+                runOnUiThread(() -> {
+                    showSafeTip("我在");
+                    Log.d(TAG, "准备启动语音识别，延时500ms...");
+                    new android.os.Handler().postDelayed(() -> {
+                        Log.d(TAG, "延时结束，调用 startVoiceRecognition()");
                         startVoiceRecognition();
-                    }
+                    }, 500);
                 });
             }
         });
     }
 
     private void runOnUiThread(Runnable runnable) {
-        android.os.Handler handler = new android.os.Handler(getMainLooper());
-        handler.post(runnable);
+        new android.os.Handler(getMainLooper()).post(runnable);
     }
 
     private void startVoiceRecognition() {
-        // 检查录音权限
         if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) {
             Log.e(TAG, "缺少录音权限，无法启动语音识别");
-            if (floatWindowManager != null) {
-                floatWindowManager.showTip("请在设置中授予录音权限");
-            }
+            showSafeTip("请在设置中授予录音权限");
             Intent intent = new Intent("org.vosk.demo.REQUEST_PERMISSION");
             intent.putExtra("permission", android.Manifest.permission.RECORD_AUDIO);
             sendBroadcast(intent);
@@ -247,7 +257,7 @@ public class VoiceAssistantService extends Service {
 
         if (model == null) {
             Log.e(TAG, "模型未初始化");
-            floatWindowManager.showTip("模型未加载");
+            showSafeTip("模型未加载");
             return;
         }
 
@@ -269,13 +279,13 @@ public class VoiceAssistantService extends Service {
 
                 @Override
                 public void onPartialResult(String hypothesis) {
-                    // 部分结果，可忽略或用于实时显示
+                    // 可忽略或用于实时显示
                 }
 
                 @Override
                 public void onError(Exception e) {
                     Log.e(TAG, "识别错误: " + e.getMessage());
-                    floatWindowManager.showTip("识别错误");
+                    showSafeTip("识别错误");
                     isListening = false;
                     floatWindowManager.setListeningState(false);
                 }
@@ -289,13 +299,13 @@ public class VoiceAssistantService extends Service {
 
             isListening = true;
             floatWindowManager.setListeningState(true);
-            floatWindowManager.showTip("请说话");
+            showSafeTip("请说话");
 
             Log.d(TAG, "语音识别已启动");
 
         } catch (IOException e) {
             Log.e(TAG, "启动识别失败: " + e.getMessage());
-            floatWindowManager.showTip("启动失败");
+            showSafeTip("启动失败");
         }
     }
 
@@ -304,18 +314,16 @@ public class VoiceAssistantService extends Service {
             speechService.stop();
             speechService = null;
         }
-
         if (recognizer != null) {
             recognizer.close();
             recognizer = null;
         }
-
         isListening = false;
-        floatWindowManager.setListeningState(false);
-
+        if (floatWindowManager != null) {
+            floatWindowManager.setListeningState(false);
+        }
         Log.d(TAG, "语音识别已停止");
 
-        // 如果唤醒词功能开启，重新开始监听唤醒词
         if (isWakeWordEnabled && wakeWordService != null && !wakeWordService.isListening()) {
             if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
                     == PackageManager.PERMISSION_GRANTED) {
@@ -326,45 +334,39 @@ public class VoiceAssistantService extends Service {
 
     private void processVoiceCommand(String jsonResult) {
         Log.d(TAG, "处理命令: " + jsonResult);
-
         String text = extractTextFromJson(jsonResult);
-        if (text == null || text.isEmpty()) {
-            return;
-        }
+        if (text == null || text.isEmpty()) return;
 
         text = text.toLowerCase();
         Log.d(TAG, "识别文本: " + text);
 
-        if (text.contains("导航") || text.contains("去")) {
-            String destination = text.replace("导航", "").replace("去", "").trim();
-            openNavigation(destination);
-
+        if (text.contains("导航") || text.contains("去") || text.contains("到")) {
+            // 移除所有导航关键词（导航、去、到），提取目的地
+            String destination = text.replaceAll("导航|去|到", "").trim();
+            if (destination.isEmpty()) {
+                showSafeTip("请说具体地点");
+            } else {
+                openNavigation(destination);
+            }
         } else if (text.contains("播放音乐") || text.contains("放歌")) {
             controlMusic("play");
-
         } else if (text.contains("暂停") || text.contains("停止")) {
             controlMusic("pause");
-
         } else if (text.contains("下一首")) {
             controlMusic("next");
-
         } else if (text.contains("音量")) {
             String level = text.replaceAll("[^0-9]", "");
             adjustVolume(level);
-
         } else if (text.contains("打开")) {
             String appName = text.replace("打开", "").trim();
             openApp(appName);
-
         } else if (text.contains("截图")) {
             takeScreenshot();
-
         } else if (text.contains("退出") || text.contains("关闭")) {
             stopVoiceRecognition();
-            floatWindowManager.showTip("再见");
-
+            showSafeTip("再见");
         } else {
-            floatWindowManager.showTip("没听懂");
+            showSafeTip("没听懂");
         }
 
         if (isWakeWordEnabled) {
@@ -384,49 +386,84 @@ public class VoiceAssistantService extends Service {
 
     private void openNavigation(String destination) {
         Log.d(TAG, "打开导航: " + destination);
-        try {
-            Uri gmmIntentUri = Uri.parse("geo:0,0?q=" + destination);
-            Intent mapIntent = new Intent(Intent.ACTION_VIEW, gmmIntentUri);
-            mapIntent.setPackage("com.autonavi.minimap");
-            mapIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
 
-            if (mapIntent.resolveActivity(getPackageManager()) != null) {
-                startActivity(mapIntent);
-            } else {
+        // 定义要尝试的地图应用包名（按优先级顺序）
+        String[] mapPackages = {
+                "com.autonavi.minimap",        // 高德地图
+                "com.tencent.map",              // 腾讯地图
+                "com.baidu.BaiduMap"            // 百度地图
+        };
+
+        boolean launched = false;
+
+        for (String packageName : mapPackages) {
+            try {
+                // 创建统一的 geo URI
+                Uri geoUri = Uri.parse("geo:0,0?q=" + destination);
+                Intent mapIntent = new Intent(Intent.ACTION_VIEW, geoUri);
+                mapIntent.setPackage(packageName);
+                mapIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+                // 检查是否有应用能处理该 Intent
+                if (mapIntent.resolveActivity(getPackageManager()) != null) {
+                    startActivity(mapIntent);
+                    launched = true;
+                    showSafeTip("正在用 " + getAppName(packageName) + " 导航到 " + destination);
+                    break;
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "尝试打开 " + packageName + " 失败: " + e.getMessage());
+                // 继续尝试下一个
+            }
+        }
+
+        // 如果所有地图应用都未安装，回退到百度地图网页版
+        if (!launched) {
+            try {
                 Uri webUri = Uri.parse("https://map.baidu.com/search/" + destination);
                 Intent webIntent = new Intent(Intent.ACTION_VIEW, webUri);
                 webIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 startActivity(webIntent);
+                showSafeTip("未找到地图应用，已打开百度网页版搜索 " + destination);
+            } catch (Exception e) {
+                Log.e(TAG, "打开网页版失败: " + e.getMessage());
+                showSafeTip("无法打开导航");
             }
+        }
+    }
 
-            floatWindowManager.showTip("正在导航到" + destination);
+    /**
+     * 根据包名获取应用显示名称（用于提示）
+     */
+    private String getAppName(String packageName) {
+        try {
+            PackageManager pm = getPackageManager();
+            return pm.getApplicationLabel(pm.getApplicationInfo(packageName, 0)).toString();
         } catch (Exception e) {
-            Log.e(TAG, "打开导航失败: " + e.getMessage());
-            floatWindowManager.showTip("无法打开导航");
+            // 如果获取失败，返回包名的最后一部分作为名称
+            String[] parts = packageName.split("\\.");
+            return parts.length > 0 ? parts[parts.length - 1] : "地图";
         }
     }
 
     private void controlMusic(String command) {
         Log.d(TAG, "控制音乐: " + command);
-        AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-
         Intent intent = new Intent("com.android.music.musicservicecommand");
-
         switch (command) {
             case "play":
                 intent.putExtra("command", "play");
                 sendBroadcast(intent);
-                floatWindowManager.showTip("播放音乐");
+                showSafeTip("播放音乐");
                 break;
             case "pause":
                 intent.putExtra("command", "pause");
                 sendBroadcast(intent);
-                floatWindowManager.showTip("暂停");
+                showSafeTip("暂停");
                 break;
             case "next":
                 intent.putExtra("command", "next");
                 sendBroadcast(intent);
-                floatWindowManager.showTip("下一首");
+                showSafeTip("下一首");
                 break;
         }
     }
@@ -434,7 +471,6 @@ public class VoiceAssistantService extends Service {
     private void adjustVolume(String level) {
         AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         int maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
-
         int targetVolume;
         if (!level.isEmpty()) {
             try {
@@ -448,15 +484,13 @@ public class VoiceAssistantService extends Service {
             int current = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
             targetVolume = (current > 0) ? 0 : maxVolume / 2;
         }
-
         audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetVolume, 0);
         int percent = targetVolume * 100 / maxVolume;
-        floatWindowManager.showTip("音量 " + percent + "%");
+        showSafeTip("音量 " + percent + "%");
     }
 
     private void openApp(String appName) {
         Log.d(TAG, "打开应用: " + appName);
-
         String packageName = null;
         if (appName.contains("地图") || appName.contains("导航")) {
             packageName = "com.autonavi.minimap";
@@ -469,28 +503,27 @@ public class VoiceAssistantService extends Service {
         } else if (appName.contains("微信")) {
             packageName = "com.tencent.mm";
         }
-
         if (packageName != null) {
             try {
                 Intent intent = getPackageManager().getLaunchIntentForPackage(packageName);
                 if (intent != null) {
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                     startActivity(intent);
-                    floatWindowManager.showTip("打开" + appName);
+                    showSafeTip("打开" + appName);
                 } else {
-                    floatWindowManager.showTip("未安装" + appName);
+                    showSafeTip("未安装" + appName);
                 }
             } catch (Exception e) {
                 Log.e(TAG, "打开应用失败: " + e.getMessage());
-                floatWindowManager.showTip("打开失败");
+                showSafeTip("打开失败");
             }
         } else {
-            floatWindowManager.showTip("未知应用");
+            showSafeTip("未知应用");
         }
     }
 
     private void takeScreenshot() {
-        floatWindowManager.showTip("截图功能需要系统权限");
+        showSafeTip("截图功能需要系统权限");
     }
 
     @Override
@@ -503,23 +536,18 @@ public class VoiceAssistantService extends Service {
     public void onDestroy() {
         super.onDestroy();
         Log.d(TAG, "服务销毁");
-
         stopVoiceRecognition();
-
         if (wakeWordService != null) {
             wakeWordService.stopListening();
         }
-
         if (floatWindowManager != null) {
             floatWindowManager.removeFloatBall();
         }
-
         try {
             unregisterReceiver(commandReceiver);
         } catch (Exception e) {
-            // 忽略
+            // ignore
         }
-
         Intent restartIntent = new Intent(this, VoiceAssistantService.class);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(restartIntent);
